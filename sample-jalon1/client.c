@@ -19,17 +19,29 @@ void echo_client(int sockfd) {
 		printf("Message: ");
 		n = 0;
 		while ((buff[n++] = getchar()) != '\n') {} // trailing '\n' will be sent
-		// Sending message (ECHO)
+
+		// Sending messages (ECHO)
+		// first the length of the msg, then the msg itself
+		int len = strlen(buff);
+		if (send(sockfd, &len, sizeof(int), 0) <= 0) {
+			break;
+		}
 		if (send(sockfd, buff, strlen(buff), 0) <= 0) {
 			break;
 		}
+		printf("%d\n", len);
 		printf("Message sent!\n");
 		// Cleaning memory
-		memset(buff, 0, MSG_LEN);
+		memset(buff, 0, MSG_LEN);		
 		// Receiving message
-		if (recv(sockfd, buff, MSG_LEN, 0) <= 0) {
+		int rlen;
+		if (recv(sockfd, &rlen, sizeof(int), 0) <= 0) {
 			break;
 		}
+		if (recv(sockfd, buff, rlen, 0) <= 0) {
+			break;
+		}
+		printf("%d\n", rlen);
 		printf("Received: %s", buff);
 	}
 }
@@ -67,6 +79,8 @@ int main(int argc, char *argv[]) {
     fprintf(stderr, "Usage: %s <server_name> <server_port>\n", argv[0]);
     exit(EXIT_FAILURE);
 	}
+
+
 
 	int sfd;
 	sfd = handle_connect(argv[1], argv[2]);
