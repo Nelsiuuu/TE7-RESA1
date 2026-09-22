@@ -57,7 +57,12 @@ int handle_bind() {
 	return sfd;
 }
 
-int main() {
+int main(int argc, char *argv[]) {
+	if (argc != 2) {
+    fprintf(stderr, "Usage: %s <server_port>\n", argv[0]);
+    exit(EXIT_FAILURE);
+	}
+
 	struct sockaddr cli;
 	int sfd, connfd;
 	socklen_t len;

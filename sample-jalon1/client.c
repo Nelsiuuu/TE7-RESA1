@@ -62,11 +62,18 @@ int handle_connect() {
 	return sfd;
 }
 
-int main() {
+int main(int argc, char *argv[]) {
+	if (argc != 3) {
+    fprintf(stderr, "Usage: %s <server_name> <server_port>\n", argv[0]);
+    exit(EXIT_FAILURE);
+	}
+
 	int sfd;
 	sfd = handle_connect();
 	echo_client(sfd);
 	close(sfd);
 	return EXIT_SUCCESS;
+
+	
 }
 
