@@ -34,13 +34,13 @@ void echo_client(int sockfd) {
 	}
 }
 
-int handle_connect() {
+int handle_connect(char *serv_name, char *serv_port) {
 	struct addrinfo hints, *result, *rp;
 	int sfd;
 	memset(&hints, 0, sizeof(struct addrinfo));
 	hints.ai_family = AF_UNSPEC;
 	hints.ai_socktype = SOCK_STREAM;
-	if (getaddrinfo(SERV_ADDR, SERV_PORT, &hints, &result) != 0) {
+	if (getaddrinfo(serv_name, serv_port, &hints, &result) != 0) {
 		perror("getaddrinfo()");
 		exit(EXIT_FAILURE);
 	}
@@ -69,7 +69,7 @@ int main(int argc, char *argv[]) {
 	}
 
 	int sfd;
-	sfd = handle_connect();
+	sfd = handle_connect(argv[1], argv[2]);
 	echo_client(sfd);
 	close(sfd);
 	return EXIT_SUCCESS;
