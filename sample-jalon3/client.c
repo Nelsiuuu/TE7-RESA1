@@ -180,6 +180,11 @@ int prepare_message(char *line,
                   nickname,
                   line + 6,
                   strlen(*payload));
+        
+        // on retient le fichier propose : il servira si le destinataire accepte
+        strncpy(offered_file, *payload, MSG_LEN - 1);
+        // garde le nom du fichier pour l'envoyer plus tard, au FILE_ACCEPT
+        offered_file[MSG_LEN - 1] = '\0';
 
         return 0;
     }
@@ -260,6 +265,76 @@ int prepare_message(char *line,
     return 0;
 }
 
+/* Connexion directe au recepteur et envoi du fichier */
+int send_file(const char *address, const char *filename)
+{
+    struct sockaddr_in addr;
+    char host[64];
+    char buffer[MSG_LEN];
+    char *colon;
+    FILE *f;
+    int fd;
+    int size;
+    int n;
+
+    // copie locale (dans host): on va modifier la chaine, et address appartient a l'appelant
+    strncpy(host, address, sizeof(host) - 1);
+    host[sizeof(host) - 1] = '\0';
+
+    colon = strchr(host, ':');    // separe "127.0.0.1:43521" (colon = :)
+
+    if (colon == NULL)
+        return -1;
+
+    *colon = '\0';    // pour separation
+
+    f = fopen(filename, "rb");
+
+    if (f == NULL) {
+        perror("fopen");
+        return -1;
+    }
+
+    // taille du fichier : on va a la fin, on lit la position, on revient
+    fseek(f, 0, SEEK_END);
+    size = ftell(f);
+    rewind(f);
+
+    fd = socket(AF_INET, SOCK_STREAM, 0);
+
+    memset(&addr, 0, sizeof(addr));
+    addr.sin_family = AF_INET;
+    addr.sin_port = htons(atoi(colon + 1));
+    inet_pton(AF_INET, host, &addr.sin_addr);
+
+    if (connect(fd, (struct sockaddr *)&addr, sizeof(addr)) < 0) {
+        perror("connect");
+        close(fd);
+        fclose(f);
+        return -1;
+    }
+
+    // la taille d'abord, le contenu ensuite
+    if (send_all(fd, &size, sizeof(int)) < 0) {
+        close(fd);
+        fclose(f);
+        return -1;
+    }
+
+    // envoi par morceaux : un fichier peut depasser MSG_LEN
+    while ((n = fread(buffer, 1, MSG_LEN, f)) > 0) {
+
+        if (send_all(fd, buffer, n) < 0)
+            break;
+    }
+
+    printf("[Client] : %s sent (%d bytes)\n", filename, size);
+
+    fclose(f);
+    close(fd);
+
+    return 0;
+}
 
 void run_client(int sockfd)
 {
@@ -273,10 +348,11 @@ void run_client(int sockfd)
     char pending_file[MSG_LEN];     // et quel fichier
     int listen_fd = -1;    // socket d'ecoute pour recevoir un fichier
     char port_text[32];
-
+    char offered_file[MSG_LEN];   // le fichier que j'ai propose (expediteur)
+    
     nickname[0] = '\0';
     pending_nick[0] = '\0';
-
+    offered_file[0] = '\0';
 
 
     /*
@@ -393,6 +469,8 @@ void run_client(int sockfd)
 
                 printf("[%s] accepted. Connect to %s\n",
                        msg.nick_sender, msg.infos);
+                       
+                send_file(msg.infos, offered_file);
                 continue;
             }
 
