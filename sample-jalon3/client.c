@@ -64,6 +64,7 @@ int open_listening_socket(int *port)
 int prepare_message(char *line,
                     char *nickname,
                     char *pending_nick,
+                    char *offered_file,
                     int *listen_fd,
                     char *port_text,
                     struct message *msg,
@@ -277,10 +278,6 @@ int send_file(const char *address, const char *filename)
     int size;
     int n;
 
-    // copie locale (dans host): on va modifier la chaine, et address appartient a l'appelant
-    strncpy(host, address, sizeof(host) - 1);
-    host[sizeof(host) - 1] = '\0';
-
     colon = strchr(host, ':');    // separe "127.0.0.1:43521" (colon = :)
 
     if (colon == NULL)
@@ -336,9 +333,63 @@ int send_file(const char *address, const char *filename)
     return 0;
 }
 
+/* Accepte la connexion de l'expediteur et ecrit le fichier */
+void receive_file(int listen_fd, const char *filename)
+{
+    char buffer[MSG_LEN];   // on y lit la socket morceau par morceau
+    char output[MSG_LEN + 16];   // le chemin du fichier a creer (nom + prefixe/dossier)
+    FILE *f;
+    int fd;
+    int size;
+    int left;   // octets qu'il reste a recevoir
+    int chunk;  // taille du morceau en cours
+
+    fd = accept(listen_fd, NULL, NULL);
+
+    if (fd < 0) {
+        perror("accept");
+        return;
+    }
+
+    if (recv_all(fd, &size, sizeof(int)) < 0 || size < 0) {
+        close(fd);
+        return;
+    }
+
+    // "toto.txt" -> "recv_toto.txt" : evite d'ecraser un fichier existant
+    snprintf(output, sizeof(output), "recv_%s", filename);
+
+    f = fopen(output, "wb");
+
+    if (f == NULL) {
+        perror("fopen");
+        close(fd);
+        return;
+    }
+
+    left = size;
+
+    while (left > 0) {
+
+        chunk = (left > MSG_LEN) ? MSG_LEN : left;
+
+        if (recv_all(fd, buffer, chunk) < 0)
+            break;
+
+        fwrite(buffer, 1, chunk, f);
+
+        left -= chunk;
+    }
+
+    printf("[Client] : received %s (%d bytes)\n", output, size);
+
+    fclose(f);
+    close(fd);
+}
+
 void run_client(int sockfd)
 {
-    struct pollfd fds[2];
+    struct pollfd fds[3];
     struct message msg;
     char line[MSG_LEN];     // qui veut m'envoyer un msg
     char payload[MSG_LEN];      // et quel msg
@@ -365,14 +416,17 @@ void run_client(int sockfd)
     fds[1].fd = sockfd;
     fds[1].events = POLLIN;
 
-
     printf("Connected to server.\n");
     printf("Choose a nickname with /nick <nickname>\n");
 
 
     while (1) {
 
-        if (poll(fds, 2, -1) < 0) {
+        // resynchronise a chaque tour car listen_fd change apres un /accept
+        fds[2].fd = listen_fd;
+        fds[2].events = POLLIN;
+
+        if (poll(fds, 3, -1) < 0) {
             perror("poll");
             break;
         }
@@ -399,6 +453,7 @@ void run_client(int sockfd)
             if (prepare_message(line,
                                 nickname,
                                 pending_nick,
+                                offered_file,
                                 &listen_fd,
                                 port_text,
                                 &msg,
@@ -469,7 +524,7 @@ void run_client(int sockfd)
 
                 printf("[%s] accepted. Connect to %s\n",
                        msg.nick_sender, msg.infos);
-                       
+
                 send_file(msg.infos, offered_file);
                 continue;
             }
@@ -478,6 +533,15 @@ void run_client(int sockfd)
             printf("[%s] : %s\n",
                    msg.nick_sender,
                    payload);
+        }
+
+        /* Un expediteur se connecte pour envoyer un fichier */
+        if (listen_fd != -1 && (fds[2].revents & POLLIN)) {
+
+            receive_file(listen_fd, pending_file);
+
+            close(listen_fd);
+            listen_fd = -1;     // transfert fini, on reprend l'ecoute a zero
         }
     }
 }
