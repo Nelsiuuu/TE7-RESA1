@@ -394,6 +394,56 @@ void handle_broadcast(struct client *sender,
     }
 }
 
+void handle_file_request(struct client *sender,
+                         struct client *clients,
+                         struct message *msg,
+                         char *payload)
+{
+    struct client *target;
+    struct message forward;
+    char text[MSG_LEN];
+
+    target = find_by_nick(clients, msg->infos);
+
+    if (target == NULL) {
+
+        snprintf(text, sizeof(text),
+                "User %s does not exist", msg->infos);
+
+        server_reply(sender->fd, FILE_REQUEST, "", text);
+        return;
+    }
+
+    build_msg(&forward,
+            FILE_REQUEST,
+            sender->nickname,
+            sender->nickname,
+            msg->pld_len);
+
+    send_msg(target->fd, &forward, payload);
+}
+
+/* /reject : transmet le refus au demandeur */
+void handle_file_reject(struct client *sender,
+                        struct client *clients,
+                        struct message *msg)
+{
+    struct client *target;
+    struct message forward;
+
+    target = find_by_nick(clients, msg->infos);
+
+    if (target == NULL)
+        return;       // le demandeur est parti, rien a faire
+
+    build_msg(&forward,
+              FILE_REJECT,
+              sender->nickname,
+              "",
+              0);
+
+    send_msg(target->fd, &forward, NULL);
+}
 
 /*
  * Traiter un message recu d'un client.
@@ -502,6 +552,12 @@ int handle_client_message(struct client *sender,
             handle_file_request(sender, clients, &msg, payload);
 
             break;
+        
+        case FILE_REJECT:
+
+            handle_file_reject(sender, clients, &msg);
+
+            break;
 
         default:
 
@@ -516,36 +572,6 @@ int handle_client_message(struct client *sender,
 
     return 0;
 }
-
-void handle_file_request(struct client *sender,
-                         struct client *clients,
-                         struct message *msg,
-                         char *payload)
-    {
-        struct client *target;
-        struct message forward;
-        char text[MSG_LEN];
-
-        target = find_by_nick(clients, msg->infos);
-
-        if (target == NULL) {
-
-            snprintf(text, sizeof(text),
-                    "User %s does not exist", msg->infos);
-
-            server_reply(sender->fd, FILE_REQUEST, "", text);
-            return;
-        }
-
-        // le recepteur doit savoir a qui repondre
-        build_msg(&forward,
-                FILE_REQUEST,
-                sender->nickname,
-                sender->nickname,
-                msg->pld_len);
-
-        send_msg(target->fd, &forward, payload);
-    }
 
 
 /* Creation de la socket serveur */

@@ -17,6 +17,7 @@
  */
 int prepare_message(char *line,
                     char *nickname,
+                    char *pending_nick,
                     struct message *msg,
                     char **payload)
 {
@@ -112,6 +113,49 @@ int prepare_message(char *line,
         return 0;
     }
 
+    /* /send <pseudo> <fichier> */
+    if(strncmp(line, "/send ", 6) == 0) {
+
+        space = strchr(line + 6, ' ');
+
+        if (space == NULL) {
+            printf("[Client] : usage: /send <nickname> <filename>\n");
+            return -1;
+        }
+
+        *space = '\0';
+
+        *payload = space + 1;
+
+        build_msg(msg,
+                  FILE_REQUEST,
+                  nickname,
+                  line + 6,
+                  strlen(*payload));
+
+        return 0;
+    }
+
+    /* /reject */
+    if (strcmp(line, "/reject") == 0) {
+
+        // rien a refuser si personne n'a rien propose
+        if (pending_nick[0] == '\0') {
+            printf("[Client] : no pending file request\n");
+            return -1;
+        }
+
+        build_msg(msg,
+                  FILE_REJECT,
+                  nickname,
+                  pending_nick,    // a qui repondre
+                  0);
+
+        pending_nick[0] = '\0';    // la demande est traitee
+
+        return 0;
+    }
+
 
     /* Commande inconnue */
     if (line[0] == '/') {
@@ -138,12 +182,16 @@ void run_client(int sockfd)
 {
     struct pollfd fds[2];
     struct message msg;
-    char line[MSG_LEN];
-    char payload[MSG_LEN];
+    char line[MSG_LEN];     // qui veut m'envoyer un msg
+    char payload[MSG_LEN];      // et quel msg
     char nickname[NICK_LEN];
     char *to_send;
+    char pending_nick[NICK_LEN];    // qui veut m'envoyer un fichier
+    char pending_file[MSG_LEN];     // et quel fichier
 
     nickname[0] = '\0';
+    pending_nick[0] = '\0';
+
 
 
     /*
@@ -189,6 +237,7 @@ void run_client(int sockfd)
 
             if (prepare_message(line,
                                 nickname,
+                                pending_nick,
                                 &msg,
                                 &to_send) < 0) {
 
@@ -229,6 +278,22 @@ void run_client(int sockfd)
                         NICK_LEN - 1);
 
                 nickname[NICK_LEN - 1] = '\0';
+            }
+
+            if (msg.type == FILE_REQUEST) {
+
+                strncpy(pending_nick,
+                        msg.infos,
+                        NICK_LEN - 1);
+                strncpy(pending_file,
+                        payload,
+                        MSG_LEN - 1);
+
+                printf("[%s] wants to send you %s. /accept or /reject\n",
+                       msg.nick_sender, payload);
+
+                continue;
+
             }
 
 
