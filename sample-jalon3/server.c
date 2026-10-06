@@ -445,6 +445,40 @@ void handle_file_reject(struct client *sender,
     send_msg(target->fd, &forward, NULL);
 }
 
+/* /accept : transmet IP:port du recepteur au demandeur */
+void handle_file_accept(struct client *sender,
+                        struct client *clients,
+                        struct message *msg,
+                        char *payload)
+{
+    struct client *target;
+    struct message forward;
+    char ip[INET_ADDRSTRLEN];
+    char address[INFOS_LEN];
+
+    target = find_by_nick(clients, msg->infos);
+
+    if (target == NULL)
+        return;
+
+    // l'IP vient du accept() du serveur, pas du client :
+    // lui ne connait que son port, il ecoute sur 0.0.0.0
+    inet_ntop(AF_INET,
+              &sender->address.sin_addr,
+              ip,
+              sizeof(ip));
+
+    snprintf(address, sizeof(address), "%s:%s", ip, payload);
+
+    build_msg(&forward,
+              FILE_ACCEPT,
+              sender->nickname,
+              address,          // infos = "127.0.0.1:43521"
+              0);
+
+    send_msg(target->fd, &forward, NULL);
+}
+
 /*
  * Traiter un message recu d'un client.
  */
@@ -556,6 +590,12 @@ int handle_client_message(struct client *sender,
         case FILE_REJECT:
 
             handle_file_reject(sender, clients, &msg);
+
+            break;
+
+        case FILE_ACCEPT:
+
+            handle_file_accept(sender, clients, &msg, payload);
 
             break;
 

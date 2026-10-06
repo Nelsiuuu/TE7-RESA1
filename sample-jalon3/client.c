@@ -10,6 +10,52 @@
 
 #include "common.h"
 
+/* Ouvre une socket d'ecoute sur un port libre et renvoie son fd.
+   Le port choisi est ecrit dans *port. */
+int open_listening_socket(int *port)
+{
+    struct sockaddr_in addr;
+    socklen_t len;
+    int fd;
+
+    fd = socket(AF_INET, SOCK_STREAM, 0);
+
+    if (fd < 0) {
+        perror("socket");
+        return -1;
+    }
+
+    memset(&addr, 0, sizeof(addr));
+
+    addr.sin_family = AF_INET;
+    addr.sin_addr.s_addr = INADDR_ANY;   // toutes les interfaces
+    addr.sin_port = 0;                   // 0 = le systeme choisit un port libre
+
+    if (bind(fd, (struct sockaddr *)&addr, sizeof(addr)) < 0) {
+        perror("bind");
+        close(fd);
+        return -1;
+    }
+
+    if (listen(fd, 1) < 0) {    // le client attend un seul expediteur (d'où la file d'attente de taille 1)
+        perror("listen");
+        close(fd);
+        return -1;
+    }
+
+    // bind a choisi le port, getsockname nous dit lequel
+    len = sizeof(addr);
+
+    if (getsockname(fd, (struct sockaddr *)&addr, &len) < 0) {
+        perror("getsockname");
+        close(fd);
+        return -1;
+    }
+
+    *port = ntohs(addr.sin_port); // network to host short
+
+    return fd;
+}
 
 /*
  * Transforme ce que tape l'utilisateur
@@ -18,6 +64,8 @@
 int prepare_message(char *line,
                     char *nickname,
                     char *pending_nick,
+                    int *listen_fd,
+                    char *port_text,
                     struct message *msg,
                     char **payload)
 {
@@ -136,6 +184,39 @@ int prepare_message(char *line,
         return 0;
     }
 
+        /* /accept */
+    if (strcmp(line, "/accept") == 0) {
+
+        int port;
+
+        if (pending_nick[0] == '\0') {
+            printf("[Client] : no pending file request\n");
+            return -1;
+        }
+
+        *listen_fd = open_listening_socket(&port);
+
+        if (*listen_fd < 0)
+            return -1;
+
+        // le port part en payload, sous forme de texte
+        snprintf(port_text, 32, "%d", port);
+
+        *payload = port_text;
+
+        build_msg(msg,
+                  FILE_ACCEPT,
+                  nickname,
+                  pending_nick,
+                  strlen(port_text));
+
+        printf("[Client] : waiting on port %d\n", port);
+
+        pending_nick[0] = '\0';
+
+        return 0;
+    }
+
     /* /reject */
     if (strcmp(line, "/reject") == 0) {
 
@@ -155,6 +236,8 @@ int prepare_message(char *line,
 
         return 0;
     }
+
+    
 
 
     /* Commande inconnue */
@@ -188,6 +271,8 @@ void run_client(int sockfd)
     char *to_send;
     char pending_nick[NICK_LEN];    // qui veut m'envoyer un fichier
     char pending_file[MSG_LEN];     // et quel fichier
+    int listen_fd = -1;    // socket d'ecoute pour recevoir un fichier
+    char port_text[32];
 
     nickname[0] = '\0';
     pending_nick[0] = '\0';
@@ -238,6 +323,8 @@ void run_client(int sockfd)
             if (prepare_message(line,
                                 nickname,
                                 pending_nick,
+                                &listen_fd,
+                                port_text,
                                 &msg,
                                 &to_send) < 0) {
 
@@ -293,7 +380,20 @@ void run_client(int sockfd)
                        msg.nick_sender, payload);
 
                 continue;
+            }
 
+                if (msg.type == FILE_REJECT) {
+
+                printf("[%s] refused your file transfer\n",
+                        msg.nick_sender);
+                continue;
+            }
+
+                if (msg.type == FILE_ACCEPT) {
+
+                printf("[%s] accepted. Connect to %s\n",
+                       msg.nick_sender, msg.infos);
+                continue;
             }
 
 
